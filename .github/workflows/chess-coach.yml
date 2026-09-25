@@ -1,0 +1,40 @@
+name: Chess Coach Worker
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: chess-coach-worker
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      CHESSCOM_USERNAME: ${{ secrets.CHESSCOM_USERNAME }}
+      CHESSCOM_USER_AGENT: personal-chess-coach/github-actions
+      DATA_DIR: ./data
+      PERSISTENCE_BACKEND: supabase
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Check out worker
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify worker
+        run: npm run typecheck
+
+      - name: Run one coach cycle
+        run: npm run coach-cycle

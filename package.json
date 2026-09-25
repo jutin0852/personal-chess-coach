@@ -1,0 +1,26 @@
+{
+  "name": "personal-chess-coach",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync": "tsx src/cli.ts sync",
+    "analyze-one": "tsx src/cli.ts analyze-one",
+    "report-one": "tsx src/cli.ts report-one",
+    "migrate-supabase": "tsx src/cli.ts migrate-supabase",
+    "coach-cycle": "tsx src/cli.ts coach-cycle",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "chess.js": "^1.4.0",
+    "stockfish": "^19.0.0",
+    "undici": "^7.16.0"
+  }
+}
