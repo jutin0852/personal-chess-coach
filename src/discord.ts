@@ -1,6 +1,7 @@
 import type { Mistake } from "./analyze.js";
 import type { Explanation } from "./explain.js";
 import type { GameRecord } from "./types.js";
+import { fetch } from "undici";
 
 export type DiscordNotificationStatus = "disabled" | "sent" | "failed";
 
