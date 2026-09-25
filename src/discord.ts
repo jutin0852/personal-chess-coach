@@ -2,6 +2,7 @@ import type { Mistake } from "./analyze.js";
 import type { Explanation } from "./explain.js";
 import type { GameRecord } from "./types.js";
 import { FormData, fetch } from "undici";
+import sharp from "sharp";
 import { describeMistake, renderMistakeBoard } from "./board.js";
 
 export type DiscordNotificationStatus = "disabled" | "sent" | "failed";
@@ -56,15 +57,19 @@ export async function sendDiscordGameReport(
       }, ...visualMistakes.map((mistake, index) => ({
         title: `Visual explanation — move ${mistake.moveNumber}`,
         description: `Red is what you played. Green is what Stockfish preferred.\n**${describeMistake(mistake).played}** → **${describeMistake(mistake).best}**`,
-        image: { url: `attachment://mistake-${index + 1}.svg` },
+        image: { url: `attachment://mistake-${index + 1}.png` },
         color: mistake.severity === "blunder" ? 0xd83c3e : 0x2ecc71,
       }))],
     };
     const form = new FormData();
     form.append("payload_json", JSON.stringify(payload));
-    visualMistakes.forEach((mistake, index) => {
+    const attachments = await Promise.all(visualMistakes.map(async (mistake, index) => {
       const svg = renderMistakeBoard(mistake, explanations[mistakes.indexOf(mistake)]?.summary);
-      form.append(`files[${index}]`, new Blob([svg], { type: "image/svg+xml" }), `mistake-${index + 1}.svg`);
+      const png = await sharp(Buffer.from(svg)).png().toBuffer();
+      return { index, png };
+    }));
+    attachments.forEach(({ index, png }) => {
+      form.append(`files[${index}]`, new Blob([png], { type: "image/png" }), `mistake-${index + 1}.png`);
     });
     const response = await fetch(webhookUrl, {
       method: "POST",
