@@ -48,3 +48,7 @@ The JSON store remains available until this verification is complete.
 To receive a compact report when a newly analyzed game is stored, create an incoming webhook in your chosen Discord channel and add its URL as the repository secret `DISCORD_WEBHOOK_URL`. The URL is never committed. When the secret is absent, the worker continues normally and sends no Discord message.
 
 The Supabase service-role key is used only inside the GitHub runner and must never be committed to the repository or placed in workflow YAML.
+
+### Interactive Discord reviews
+
+When `DISCORD_BOT_TOKEN` is present, the worker posts a navigable review card through the Personal Chess Coach bot. The token is read only from the encrypted GitHub Actions secret; the channel ID is the private `#chess-coach` channel. The existing webhook report remains the fallback when the bot secret is absent.

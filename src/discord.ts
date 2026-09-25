@@ -7,8 +7,80 @@ import { describeMistake, renderMistakeBoard } from "./board.js";
 
 export type DiscordNotificationStatus = "disabled" | "sent" | "failed";
 
+type DiscordButton = {
+  type: 2;
+  style: 1 | 2 | 4;
+  label: string;
+  custom_id: string;
+  disabled?: boolean;
+};
+
 function truncate(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
+}
+
+function reviewButtons(gameId: string, index: number, total: number): DiscordButton[] {
+  return [
+    { type: 2, style: 1, label: "Previous", custom_id: `review:${gameId}:${Math.max(0, index - 1)}`, disabled: index === 0 },
+    { type: 2, style: 1, label: "Next", custom_id: `review:${gameId}:${Math.min(total - 1, index + 1)}`, disabled: index >= total - 1 },
+    { type: 2, style: 4, label: "Close review", custom_id: `review:${gameId}:close` },
+  ];
+}
+
+/**
+ * Sends a single, navigable mistake review through the Discord bot API.
+ * The interaction endpoint is intentionally separate: Discord delivers button
+ * clicks to that endpoint, while this worker only creates the initial review.
+ */
+export async function sendDiscordInteractiveGameReport(
+  game: GameRecord,
+  mistakes: Mistake[],
+  explanations: Explanation[],
+): Promise<DiscordNotificationStatus> {
+  const botToken = process.env.DISCORD_BOT_TOKEN?.trim();
+  const channelId = process.env.DISCORD_CHANNEL_ID?.trim();
+  if (!botToken || !channelId) return "disabled";
+
+  const ranked = [...mistakes].sort((left, right) => right.evaluationLoss - left.evaluationLoss);
+  if (!ranked.length) return "disabled";
+  const mistake = ranked[0];
+  const explanation = explanations[mistakes.indexOf(mistake)];
+  const move = describeMistake(mistake);
+  const board = await sharp(Buffer.from(renderMistakeBoard(mistake, explanation?.summary))).png().toBuffer();
+  const content = `Review 1 of ${ranked.length} · Move ${mistake.moveNumber}`;
+  const payload = {
+    username: "Personal Chess Coach",
+    content,
+    embeds: [{
+      title: `${mistake.severity.toUpperCase()} · Move ${mistake.moveNumber}`,
+      description: truncate(
+        `**Your move:** ${move.played}\n**Stockfish:** ${move.best}\n\n${explanation?.explanation ?? "Stockfish found a better move in this position."}\n\n**Practice:** ${explanation?.recommendation ?? "Look for checks, captures, and threats before committing."}`,
+        3900,
+      ),
+      image: { url: "attachment://review.png" },
+      color: mistake.severity === "blunder" ? 0xd83c3e : 0x5865f2,
+      footer: { text: "Red = your move · Green = Stockfish's move" },
+    }],
+    components: [{ type: 1, components: reviewButtons(game.id, 0, ranked.length) }],
+  };
+  try {
+    const form = new FormData();
+    form.append("payload_json", JSON.stringify(payload));
+    form.append("files[0]", new Blob([board], { type: "image/png" }), "review.png");
+    const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bot ${botToken}` },
+      body: form,
+    });
+    if (!response.ok) {
+      console.warn(`Discord interactive report failed with status ${response.status}`);
+      return "failed";
+    }
+    return "sent";
+  } catch (error) {
+    console.warn("Discord interactive report failed", error);
+    return "failed";
+  }
 }
 
 /**

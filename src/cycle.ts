@@ -2,7 +2,7 @@ import { config, requireUsername } from "./config.js";
 import { discoverGames } from "./chesscom.js";
 import { analyzeGame } from "./analyze.js";
 import { explainMistake } from "./explain.js";
-import { sendDiscordGameReport } from "./discord.js";
+import { sendDiscordGameReport, sendDiscordInteractiveGameReport } from "./discord.js";
 import { SupabaseStore } from "./supabase-store.js";
 
 export async function runCoachCycle(): Promise<void> {
@@ -18,6 +18,8 @@ export async function runCoachCycle(): Promise<void> {
   const mistakes = await analyzeGame(game, 8, username);
   const explanations = await Promise.all(mistakes.map((mistake) => explainMistake(game, mistake)));
   await store.saveAnalysis(game, mistakes, explanations, 8);
-  const discordNotification = await sendDiscordGameReport(game, mistakes, explanations);
+  const discordNotification = process.env.DISCORD_BOT_TOKEN && process.env.DISCORD_CHANNEL_ID
+    ? await sendDiscordInteractiveGameReport(game, mistakes, explanations)
+    : await sendDiscordGameReport(game, mistakes, explanations);
   console.log(JSON.stringify({ username, discovered: discovered.length, action: "analyzed", game: game.url, mistakes: mistakes.length, discordNotification, stored: await store.count() }, null, 2));
 }
