@@ -1,9 +1,38 @@
-// The npm package ships JavaScript without TypeScript declarations; the local
-// declaration in stockfish.d.ts describes the small API this adapter uses.
-// @ts-expect-error package has no bundled declaration file under NodeNext
-import initEngine from "stockfish";
+import fs from "node:fs";
+import path from "node:path";
+import { createRequire } from "node:module";
 
-type Engine = Awaited<ReturnType<typeof initEngine>>;
+type Engine = {
+  listener?: (line: string) => void;
+  sendCommand(command: string): void;
+  ccall(name: string, returnType: null, argTypes: string[], args: string[], options?: { async?: boolean }): Promise<unknown> | unknown;
+  _isReady?: () => boolean;
+};
+
+type EngineFactory = (options: {
+  locateFile(path: string): string;
+  wasmBinary: Buffer;
+}) => Promise<Engine>;
+
+async function initEngine(): Promise<Engine> {
+  // Load the package's bundled WASM engine directly. The package's CommonJS
+  // wrapper can return the wrong module shape on hosted Node runners.
+  // @ts-expect-error package has no bundled TypeScript declaration
+  const module = await import("stockfish/bin/stockfish-19-lite-single.js");
+  const factory = (module.default ?? module.Stockfish) as EngineFactory;
+  const require = createRequire(import.meta.url);
+  const packageDir = path.dirname(require.resolve("stockfish/package.json"));
+  const wasmPath = path.join(packageDir, "bin", "stockfish-19-lite-single.wasm");
+  const engine = await factory({ locateFile: () => wasmPath, wasmBinary: fs.readFileSync(wasmPath) });
+  if (engine._isReady) {
+    while (!engine._isReady()) await new Promise((resolve) => setTimeout(resolve, 10));
+    delete engine._isReady;
+  }
+  engine.sendCommand = (command) => {
+    setImmediate(() => engine.ccall("command", null, ["string"], [command], { async: /^go\\b/.test(command) }));
+  };
+  return engine;
+}
 export type EngineScore = { cp?: number; mate?: number };
 export type EngineAnalysis = { score: EngineScore; bestMove: string; pv: string[] };
 
@@ -18,7 +47,7 @@ export class StockfishEngine {
   private engine?: Engine;
 
   async start(): Promise<void> {
-    this.engine = await initEngine("lite-single");
+    this.engine = await initEngine();
     await this.waitForLine("uciok", () => this.engine?.sendCommand("uci"));
   }
 
