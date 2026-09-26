@@ -40,7 +40,7 @@ The JSON store remains available until this verification is complete.
 
 ## Online GitHub Actions worker
 
-`.github/workflows/chess-coach.yml` runs the same coach cycle on a GitHub-hosted runner. It is intentionally triggered with `workflow_dispatch` so n8n Cloud can orchestrate it through GitHub's API. Add these repository secrets before running it:
+`.github/workflows/chess-coach.yml` runs the same coach cycle on a GitHub-hosted runner. It checks automatically every 10 minutes for a new Chess.com game and also supports manual runs, so a new game does not depend on n8n noticing the game immediately. Add these repository secrets before running it:
 
 - `CHESSCOM_USERNAME`
 - `SUPABASE_URL`
