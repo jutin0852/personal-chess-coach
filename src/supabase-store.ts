@@ -100,4 +100,90 @@ export class SupabaseStore {
     const { error: mistakesError } = await this.client.from("mistakes").upsert(rows, { onConflict: "analysis_id,ply" });
     if (mistakesError) throw new Error(`Supabase mistakes save failed: ${mistakesError.message}`);
   }
+
+  async historyFor(username: string): Promise<HistoryGame[]> {
+    const { data: gameRows, error: gamesError } = await this.client.from("games")
+      .select("id, chesscom_game_id, chesscom_url, username, game_date, white, black, result, white_elo, black_elo, time_control, pgn, source_archive, discovered_at")
+      .eq("username", username)
+      .order("game_date", { ascending: false });
+    if (gamesError) throw new Error(`Supabase history game lookup failed: ${gamesError.message}`);
+    if (!gameRows?.length) return [];
+
+    const gameIds = gameRows.map((row) => row.id as number);
+    const { data: analysisRows, error: analysesError } = await this.client.from("analyses")
+      .select("id, game_id, status, completed_at")
+      .in("game_id", gameIds)
+      .eq("status", "completed");
+    if (analysesError) throw new Error(`Supabase history analysis lookup failed: ${analysesError.message}`);
+
+    const completedAnalyses = analysisRows ?? [];
+    const analysisIds = completedAnalyses.map((row) => row.id as number);
+    const { data: mistakeRows, error: mistakesError } = analysisIds.length
+      ? await this.client.from("mistakes").select("analysis_id, ply, move_number, color, move_played, best_move, fen_before, evaluation_before, evaluation_after, evaluation_loss, continuation, severity, category, ai_explanation").in("analysis_id", analysisIds).order("evaluation_loss", { ascending: false })
+      : { data: [], error: null };
+    if (mistakesError) throw new Error(`Supabase history mistake lookup failed: ${mistakesError.message}`);
+
+    const analysisToGame = new Map(completedAnalyses.map((row) => [row.id as number, row.game_id as number]));
+    const history = new Map<number, HistoryGame>();
+    for (const row of gameRows) {
+      history.set(row.id as number, {
+        game: {
+          id: row.chesscom_game_id as string,
+          url: row.chesscom_url as string | undefined,
+          date: row.game_date as string | undefined,
+          white: row.white as string | undefined,
+          black: row.black as string | undefined,
+          result: row.result as string | undefined,
+          whiteElo: row.white_elo as number | undefined,
+          blackElo: row.black_elo as number | undefined,
+          timeControl: row.time_control as string | undefined,
+          pgn: row.pgn as string,
+          sourceArchive: row.source_archive as string,
+          discoveredAt: row.discovered_at as string
+        },
+        mistakes: []
+      });
+    }
+
+    for (const row of mistakeRows ?? []) {
+      const gameId = analysisToGame.get(row.analysis_id as number);
+      const item = gameId === undefined ? undefined : history.get(gameId);
+      if (!item) continue;
+      item.mistakes.push({
+        mistake: {
+          ply: row.ply as number,
+          moveNumber: row.move_number as number,
+          color: row.color as Mistake["color"],
+          movePlayed: row.move_played as string,
+          bestMove: row.best_move as string,
+          fenBefore: row.fen_before as string,
+          evaluationBefore: row.evaluation_before as Mistake["evaluationBefore"],
+          evaluationAfter: row.evaluation_after as Mistake["evaluationAfter"],
+          evaluationLoss: row.evaluation_loss as number,
+          continuation: row.continuation as string[],
+          severity: row.severity as Mistake["severity"]
+        },
+        explanation: isExplanation(row.ai_explanation) ? row.ai_explanation : undefined,
+        category: typeof row.category === "string" ? row.category : undefined
+      });
+    }
+    return [...history.values()];
+  }
+}
+
+export type HistoryMistake = {
+  mistake: Mistake;
+  explanation?: Explanation;
+  category?: string;
+};
+
+export type HistoryGame = {
+  game: GameRecord;
+  mistakes: HistoryMistake[];
+};
+
+function isExplanation(value: unknown): value is Explanation {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<Explanation>;
+  return typeof candidate.summary === "string" && typeof candidate.explanation === "string" && typeof candidate.recommendation === "string" && typeof candidate.pattern === "string";
 }

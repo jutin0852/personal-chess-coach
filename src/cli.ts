@@ -7,6 +7,7 @@ import type { GameRecord } from "./types.js";
 import { explainMistake } from "./explain.js";
 import { SupabaseStore } from "./supabase-store.js";
 import { runCoachBackfill, runCoachCycle } from "./cycle.js";
+import { sendDiscordHistoryReport } from "./discord.js";
 
 async function sync(): Promise<void> {
   const username = requireUsername();
@@ -59,10 +60,18 @@ async function migrateSupabase(): Promise<void> {
   console.log(JSON.stringify({ uploaded: database.games.length, supabaseCount: await store.count() }, null, 2));
 }
 
+async function reportHistory(): Promise<void> {
+  const username = requireUsername();
+  const history = await SupabaseStore.fromEnvironment().historyFor(username);
+  const discord = await sendDiscordHistoryReport(username, history);
+  console.log(JSON.stringify({ username, games: history.length, mistakes: history.reduce((total, entry) => total + entry.mistakes.length, 0), discord }, null, 2));
+}
+
 if (process.argv[2] === "sync") await sync();
 else if (process.argv[2] === "analyze-one") await analyzeOne();
 else if (process.argv[2] === "report-one") await reportOne();
 else if (process.argv[2] === "migrate-supabase") await migrateSupabase();
 else if (process.argv[2] === "coach-cycle") await runCoachCycle();
 else if (process.argv[2] === "analyze-all") await runCoachBackfill();
-else console.error("Usage: npm run sync | npm run analyze-one | npm run report-one | npm run migrate-supabase | npm run coach-cycle | npm run analyze-all");
+else if (process.argv[2] === "report-history") await reportHistory();
+else console.error("Usage: npm run sync | npm run analyze-one | npm run report-one | npm run migrate-supabase | npm run coach-cycle | npm run analyze-all | npm run report-history");

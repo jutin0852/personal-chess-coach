@@ -14,6 +14,7 @@ npm run analyze-one
 npm run report-one
 npm run migrate-supabase
 npm run coach-cycle
+npm run report-history
 ```
 
 `CHESSCOM_USERNAME` is the only required account setting. The Chess.com PubAPI is public and read-only; no password is used. The sync checks the latest three monthly archives, extracts PGN headers, and stores unseen games in `data/games.json`.
@@ -34,6 +35,8 @@ Stockfish analysis, structured mistake extraction, and grounded AI explanations 
 The JSON store remains available until this verification is complete.
 
 `coach-cycle` is the local automation unit: it syncs Chess.com, finds the newest Supabase game without a completed analysis, runs local Stockfish, generates grounded explanations, and saves the result. If there is nothing new to analyze, it exits without doing work.
+
+`report-history` reads the completed analyses already stored in Supabase and sends a full history report to Discord: recurring weaknesses, counts by category and severity, every analyzed game, detailed explanations, and visual boards for the most important examples. It does not run Stockfish again.
 
 ## Online GitHub Actions worker
 

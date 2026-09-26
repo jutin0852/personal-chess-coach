@@ -4,6 +4,7 @@ import type { GameRecord } from "./types.js";
 import { FormData, fetch } from "undici";
 import sharp from "sharp";
 import { describeMistake, renderMistakeBoard } from "./board.js";
+import type { HistoryGame } from "./supabase-store.js";
 
 export type DiscordNotificationStatus = "disabled" | "sent" | "failed";
 
@@ -159,4 +160,93 @@ export async function sendDiscordGameReport(
     console.warn("Discord notification failed", error);
     return "failed";
   }
+}
+
+async function postDiscordPayload(payload: Record<string, unknown>, files: Array<{ name: string; data: Buffer }> = []): Promise<boolean> {
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL?.trim();
+  const botToken = process.env.DISCORD_BOT_TOKEN?.trim();
+  const channelId = process.env.DISCORD_CHANNEL_ID?.trim();
+  const url = webhookUrl || (botToken && channelId ? `https://discord.com/api/v10/channels/${channelId}/messages` : undefined);
+  if (!url) return false;
+  try {
+    const form = new FormData();
+    form.append("payload_json", JSON.stringify(payload));
+    files.forEach((file, index) => form.append(`files[${index}]`, new Blob([file.data as unknown as BlobPart], { type: "image/png" }), file.name));
+    const response = await fetch(url, {
+      method: "POST",
+      headers: botToken && !webhookUrl ? { Authorization: `Bot ${botToken}` } : undefined,
+      body: form
+    });
+    return response.ok;
+  } catch (error) {
+    console.warn("Discord history report failed", error);
+    return false;
+  }
+}
+
+function compact(value: string, limit: number): string {
+  return value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
+}
+
+export async function sendDiscordHistoryReport(username: string, history: HistoryGame[]): Promise<DiscordNotificationStatus> {
+  if (!process.env.DISCORD_WEBHOOK_URL?.trim() && !(process.env.DISCORD_BOT_TOKEN?.trim() && process.env.DISCORD_CHANNEL_ID?.trim())) return "disabled";
+  const analyzed = history.filter((entry) => entry.mistakes.length || entry.game.id);
+  const allMistakes = analyzed.flatMap((entry) => entry.mistakes.map((item) => ({ ...item, game: entry.game })));
+  const severity = { inaccuracy: 0, mistake: 0, blunder: 0 };
+  const categories: Record<string, number> = {};
+  for (const item of allMistakes) {
+    severity[item.mistake.severity] += 1;
+    const category = item.explanation?.category ?? item.category ?? "Other";
+    categories[category] = (categories[category] ?? 0) + 1;
+  }
+  const topCategories = Object.entries(categories).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const totalLoss = allMistakes.reduce((sum, item) => sum + item.mistake.evaluationLoss, 0);
+  const pattern = allMistakes[0]?.explanation?.pattern ?? "Before committing to a move, name your opponent's strongest check, capture, or threat.";
+  const summary = [
+    `**Games analyzed:** ${analyzed.length}`,
+    `**Games with improvement points:** ${analyzed.filter((entry) => entry.mistakes.length > 0).length}`,
+    `**Total improvement points:** ${allMistakes.length}`,
+    `**Severity:** ${severity.blunder} blunders · ${severity.mistake} mistakes · ${severity.inaccuracy} inaccuracies`,
+    `**Total evaluation loss:** ${(totalLoss / 100).toFixed(1)} pawns`,
+    `**Most common patterns:** ${topCategories.map(([name, count]) => `${name} (${count})`).join(", ") || "No recurring category yet."}`,
+    `**Main habit to practice:** ${pattern}`
+  ].join("\n");
+  const summarySent = await postDiscordPayload({
+    username: "Personal Chess Coach",
+    embeds: [{ title: `${username}'s full chess history report`, description: compact(summary, 3900), color: 0x5865f2, footer: { text: "Built from the explanations already saved in Supabase." } }]
+  });
+  if (!summarySent) return "failed";
+
+  const gameLines = analyzed.map((entry) => {
+    const game = entry.game;
+    const label = `${game.date ?? "Unknown date"} · ${game.white ?? "White"} vs ${game.black ?? "Black"} · ${game.result ?? "result unavailable"}`;
+    return `• ${label}: **${entry.mistakes.length}** improvement point${entry.mistakes.length === 1 ? "" : "s"}${game.url ? ` · ${game.url}` : ""}`;
+  });
+  for (let index = 0; index < gameLines.length; index += 8) {
+    const page = gameLines.slice(index, index + 8).join("\n");
+    if (!(await postDiscordPayload({ username: "Personal Chess Coach", content: `**Games ${index + 1}–${Math.min(index + 8, gameLines.length)}**\n${compact(page, 1800)}` }))) return "failed";
+  }
+
+  const detailLines = allMistakes.map((item, index) => {
+    const move = describeMistake(item.mistake);
+    const explanation = item.explanation;
+    const gameLabel = `${item.game.date ?? "Unknown date"} · ${item.game.white ?? "White"} vs ${item.game.black ?? "Black"}`;
+    return `**${index + 1}. ${gameLabel} · move ${item.mistake.moveNumber} (${item.mistake.severity})**\nYou played **${move.played}**. Stockfish preferred **${move.best}**.\n${explanation?.explanation ?? explanation?.summary ?? "Stockfish found a stronger alternative."}\n**Practice:** ${explanation?.recommendation ?? "Before moving, check your opponent's checks, captures, and threats."}\n**Pattern:** ${explanation?.pattern ?? pattern}`;
+  });
+  for (let index = 0; index < detailLines.length; index += 3) {
+    const page = detailLines.slice(index, index + 3).join("\n\n");
+    if (!(await postDiscordPayload({ username: "Personal Chess Coach", content: compact(`**Detailed explanations ${index + 1}–${Math.min(index + 3, detailLines.length)}**\n${page}`, 1950) }))) return "failed";
+  }
+
+  const visual = [...allMistakes].sort((left, right) => right.mistake.evaluationLoss - left.mistake.evaluationLoss).slice(0, 5);
+  for (let index = 0; index < visual.length; index += 1) {
+    const item = visual[index];
+    const move = describeMistake(item.mistake);
+    const image = await sharp(Buffer.from(renderMistakeBoard(item.mistake, item.explanation?.summary))).png().toBuffer();
+    if (!(await postDiscordPayload({
+      username: "Personal Chess Coach",
+      embeds: [{ title: `Visual example ${index + 1}: ${item.mistake.severity} · move ${item.mistake.moveNumber}`, description: compact(`Red is your move: **${move.played}**\nGreen is Stockfish's move: **${move.best}**\n\n${item.explanation?.summary ?? "This was the stronger alternative."}\n\n**Pattern:** ${item.explanation?.pattern ?? pattern}`, 3900), image: { url: `attachment://history-${index + 1}.png` }, color: item.mistake.severity === "blunder" ? 0xd83c3e : 0x2ecc71 }]
+    }, [{ name: `history-${index + 1}.png`, data: image }]))) return "failed";
+  }
+  return "sent";
 }

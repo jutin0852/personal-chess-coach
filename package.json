@@ -10,6 +10,7 @@
     "migrate-supabase": "tsx src/cli.ts migrate-supabase",
     "coach-cycle": "tsx src/cli.ts coach-cycle",
     "analyze-all": "tsx src/cli.ts analyze-all",
+    "report-history": "tsx src/cli.ts report-history",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

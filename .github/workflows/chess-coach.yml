@@ -4,13 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Run one new game or backfill every unanalysed game"
+        description: "Run one new game, backfill games, or send the full history report"
         required: true
         default: "cycle"
         type: choice
         options:
           - cycle
           - backfill
+          - history
 
 concurrency:
   group: chess-coach-worker
@@ -54,6 +55,8 @@ jobs:
         run: |
           if [ "$COACH_MODE" = "backfill" ]; then
             npm run analyze-all
+          elif [ "$COACH_MODE" = "history" ]; then
+            npm run report-history
           else
             npm run coach-cycle
           fi
