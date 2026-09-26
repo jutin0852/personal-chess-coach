@@ -54,7 +54,7 @@ export async function sendDiscordInteractiveGameReport(
     embeds: [{
       title: `${mistake.severity.toUpperCase()} · Move ${mistake.moveNumber}`,
       description: truncate(
-        `**Your move:** ${move.played}\n**Stockfish:** ${move.best}\n\n${explanation?.explanation ?? "Stockfish found a better move in this position."}\n\n**Practice:** ${explanation?.recommendation ?? "Look for checks, captures, and threats before committing."}`,
+        `**Your move:** ${move.played}\n**Stockfish:** ${move.best}\n\n${explanation?.explanation ?? "Stockfish found a better move in this position."}\n\n**Practice:** ${explanation?.recommendation ?? "Look for checks, captures, and threats before committing."}\n\n**Pattern to remember:** ${explanation?.pattern ?? "Check your opponent's forcing replies before committing."}`,
         3900,
       ),
       image: { url: "attachment://review.png" },
@@ -126,12 +126,15 @@ export async function sendDiscordGameReport(
           { name: "Top improvement points", value: ranked.join("\n") || "No major mistakes detected.", inline: false },
         ],
         footer: { text: "Boards show your move in red and Stockfish's move in green." },
-      }, ...visualMistakes.map((mistake, index) => ({
-        title: `Visual explanation — move ${mistake.moveNumber}`,
-        description: `Red is what you played. Green is what Stockfish preferred.\n**${describeMistake(mistake).played}** → **${describeMistake(mistake).best}**`,
-        image: { url: `attachment://mistake-${index + 1}.png` },
-        color: mistake.severity === "blunder" ? 0xd83c3e : 0x2ecc71,
-      }))],
+      }, ...visualMistakes.map((mistake, index) => {
+        const explanation = explanations[mistakes.indexOf(mistake)];
+        return {
+          title: `Visual explanation — move ${mistake.moveNumber}`,
+          description: truncate(`Red is what you played. Green is what Stockfish preferred.\n**${describeMistake(mistake).played}** → **${describeMistake(mistake).best}**\n\n${explanation?.summary ?? "Stockfish found a stronger alternative."}\n\n**Pattern:** ${explanation?.pattern ?? "Check your opponent's forcing replies before committing."}`, 900),
+          image: { url: `attachment://mistake-${index + 1}.png` },
+          color: mistake.severity === "blunder" ? 0xd83c3e : 0x2ecc71,
+        };
+      })],
     };
     const form = new FormData();
     form.append("payload_json", JSON.stringify(payload));

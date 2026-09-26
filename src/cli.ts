@@ -6,7 +6,7 @@ import { analyzeGame } from "./analyze.js";
 import type { GameRecord } from "./types.js";
 import { explainMistake } from "./explain.js";
 import { SupabaseStore } from "./supabase-store.js";
-import { runCoachCycle } from "./cycle.js";
+import { runCoachBackfill, runCoachCycle } from "./cycle.js";
 
 async function sync(): Promise<void> {
   const username = requireUsername();
@@ -64,4 +64,5 @@ else if (process.argv[2] === "analyze-one") await analyzeOne();
 else if (process.argv[2] === "report-one") await reportOne();
 else if (process.argv[2] === "migrate-supabase") await migrateSupabase();
 else if (process.argv[2] === "coach-cycle") await runCoachCycle();
-else console.error("Usage: npm run sync | npm run analyze-one | npm run report-one | npm run migrate-supabase | npm run coach-cycle");
+else if (process.argv[2] === "analyze-all") await runCoachBackfill();
+else console.error("Usage: npm run sync | npm run analyze-one | npm run report-one | npm run migrate-supabase | npm run coach-cycle | npm run analyze-all");

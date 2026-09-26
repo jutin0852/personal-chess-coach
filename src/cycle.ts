@@ -23,3 +23,44 @@ export async function runCoachCycle(): Promise<void> {
     : await sendDiscordGameReport(game, mistakes, explanations);
   console.log(JSON.stringify({ username, discovered: discovered.length, action: "analyzed", game: game.url, mistakes: mistakes.length, discordNotification, stored: await store.count() }, null, 2));
 }
+
+export async function runCoachBackfill(): Promise<void> {
+  const username = requireUsername();
+  const store = SupabaseStore.fromEnvironment();
+  const discovered = await discoverGames(username, config.userAgent, 0);
+  await store.upsertGames(username, discovered);
+  const games = await store.unanalyzedGamesFor(username, 100000);
+  const summary = {
+    username,
+    discovered: discovered.length,
+    gamesQueued: games.length,
+    gamesAnalyzed: 0,
+    gamesWithMistakes: 0,
+    mistakes: 0,
+    evaluationLoss: 0,
+    severity: { inaccuracy: 0, mistake: 0, blunder: 0 },
+    categories: {} as Record<string, number>,
+    pattern: "Move-safety check: name your opponent's strongest reply before committing to a move."
+  };
+
+  for (const game of games) {
+    const mistakes = await analyzeGame(game, 8, username);
+    const explanations = await Promise.all(mistakes.map((mistake) => explainMistake(game, mistake)));
+    await store.saveAnalysis(game, mistakes, explanations, 8);
+    summary.gamesAnalyzed += 1;
+    if (mistakes.length) summary.gamesWithMistakes += 1;
+    summary.mistakes += mistakes.length;
+    summary.evaluationLoss += mistakes.reduce((total, mistake) => total + mistake.evaluationLoss, 0);
+    for (const [index, mistake] of mistakes.entries()) {
+      summary.severity[mistake.severity] += 1;
+      const category = explanations[index]?.category ?? "Other";
+      summary.categories[category] = (summary.categories[category] ?? 0) + 1;
+    }
+  }
+
+  console.log(JSON.stringify({
+    ...summary,
+    averageLossPerMistake: summary.mistakes ? Math.round(summary.evaluationLoss / summary.mistakes) : 0,
+    stored: await store.count()
+  }, null, 2));
+}

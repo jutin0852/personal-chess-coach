@@ -9,6 +9,7 @@
     "report-one": "tsx src/cli.ts report-one",
     "migrate-supabase": "tsx src/cli.ts migrate-supabase",
     "coach-cycle": "tsx src/cli.ts coach-cycle",
+    "analyze-all": "tsx src/cli.ts analyze-all",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

@@ -2,6 +2,15 @@ name: Chess Coach Worker
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run one new game or backfill every unanalysed game"
+        required: true
+        default: "cycle"
+        type: choice
+        options:
+          - cycle
+          - backfill
 
 concurrency:
   group: chess-coach-worker
@@ -10,7 +19,7 @@ concurrency:
 jobs:
   analyze:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 360
     permissions:
       contents: read
     env:
@@ -39,5 +48,12 @@ jobs:
       - name: Verify worker
         run: npm run typecheck
 
-      - name: Run one coach cycle
-        run: npm run coach-cycle
+      - name: Run requested coach mode
+        env:
+          COACH_MODE: ${{ inputs.mode || 'cycle' }}
+        run: |
+          if [ "$COACH_MODE" = "backfill" ]; then
+            npm run analyze-all
+          else
+            npm run coach-cycle
+          fi

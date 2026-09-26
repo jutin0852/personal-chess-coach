@@ -66,7 +66,8 @@ export function toGameRecord(pgn: string, sourceArchive: string, discoveredAt = 
 }
 
 export async function discoverGames(username: string, userAgent: string, archiveLimit = 3): Promise<GameRecord[]> {
-  const archives = (await getArchives(username, userAgent)).slice(-archiveLimit).reverse();
+  const available = await getArchives(username, userAgent);
+  const archives = (archiveLimit <= 0 ? available : available.slice(-archiveLimit)).reverse();
   const games: GameRecord[] = [];
   for (const archive of archives) {
     const pgn = await getText(`${archive}/pgn`, userAgent);

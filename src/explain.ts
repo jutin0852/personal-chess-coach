@@ -1,5 +1,6 @@
 import type { GameRecord } from "./types.js";
 import type { Mistake } from "./analyze.js";
+import { describeMistake } from "./board.js";
 
 export const categories = [
   "Hanging pieces", "Piece safety", "Missed tactics", "Forks", "Pins", "Skewers",
@@ -12,6 +13,7 @@ export type Explanation = {
   summary: string;
   explanation: string;
   recommendation: string;
+  pattern: string;
   groundedIn: string[];
   source: "ollama" | "safe-fallback";
 };
@@ -22,12 +24,20 @@ function scoreText(score: Mistake["evaluationBefore"]): string {
 }
 
 function fallback(mistake: Mistake): Explanation {
+  const move = describeMistake(mistake);
   const severity = mistake.severity === "blunder" ? "This was a major error" : mistake.severity === "mistake" ? "This was a significant error" : "This was a smaller inaccuracy";
+  const playedPiece = move.played.split(" from ")[0];
+  const bestPiece = move.best.split(" from ")[0];
+  const playedFrom = move.from.toUpperCase();
+  const playedTo = move.to.toUpperCase();
+  const bestFrom = move.bestFrom.toUpperCase();
+  const bestTo = move.bestTo.toUpperCase();
   return {
     category: "Other",
-    summary: `${severity}: ${mistake.movePlayed} instead of ${mistake.bestMove}.`,
-    explanation: `Stockfish preferred ${mistake.bestMove}. The position changed from ${scoreText(mistake.evaluationBefore)} to ${scoreText(mistake.evaluationAfter)} from your perspective. The engine evidence supports a move-quality problem, but does not by itself prove a specific tactical theme.`,
-    recommendation: "Before committing to a move, compare it with the opponent's forcing checks, captures, and threats.",
+    summary: `${severity}: your ${playedPiece.toLowerCase()} on ${playedFrom} moved to ${playedTo}, but ${bestPiece.toLowerCase()} from ${bestFrom} to ${bestTo} was stronger.`,
+    explanation: `You played ${move.played}. Stockfish preferred ${move.best}. From your perspective, the position changed from ${scoreText(mistake.evaluationBefore)} to ${scoreText(mistake.evaluationAfter)}, a loss of about ${(mistake.evaluationLoss / 100).toFixed(1)} pawns. The engine evidence shows that the move was weaker, but it does not prove a specific tactic by itself, so this explanation avoids inventing one.`,
+    recommendation: `Before moving the ${playedPiece.toLowerCase()} on ${playedFrom}, ask: what checks, captures, and threats does my opponent have after ${playedTo}? Then compare that with the safer ${bestPiece.toLowerCase()} move from ${bestFrom} to ${bestTo}.`,
+    pattern: "Move-safety check: name your opponent's strongest reply before committing to a move.",
     groundedIn: ["best move", "evaluation before", "evaluation after", "FEN before", "engine continuation"],
     source: "safe-fallback"
   };
@@ -35,8 +45,8 @@ function fallback(mistake: Mistake): Explanation {
 
 function prompt(game: GameRecord, mistake: Mistake): string {
   return JSON.stringify({
-    task: "Explain one chess mistake for a developing player. Do not invent a tactic or claim a piece is hanging unless the supplied data supports it.",
-    output_schema: { category: categories, summary: "string", explanation: "string", recommendation: "string", groundedIn: "string[]" },
+    task: "Explain one chess mistake for a developing player. Always use plain language and name the piece and squares, not only algebraic notation. Start by saying what the player's piece on its square did, explain what that allowed or failed to address, name the stronger move in piece-and-square language, and finish with a reusable pattern to remember. Do not invent a tactic or claim a piece is hanging unless the supplied data supports it.",
+    output_schema: { category: categories, summary: "string", explanation: "string", recommendation: "string", pattern: "string", groundedIn: "string[]" },
     game: { date: game.date, color: mistake.color, result: game.result },
     evidence: {
       moveNumber: mistake.moveNumber, movePlayed: mistake.movePlayed, bestMove: mistake.bestMove,
@@ -58,7 +68,7 @@ export async function explainMistake(game: GameRecord, mistake: Mistake): Promis
     if (!response.ok) return fallback(mistake);
     const body = (await response.json()) as { response?: string };
     const parsed = JSON.parse(body.response || "{}");
-    if (!categories.includes(parsed.category) || typeof parsed.summary !== "string" || typeof parsed.explanation !== "string" || typeof parsed.recommendation !== "string" || !Array.isArray(parsed.groundedIn)) return fallback(mistake);
+    if (!categories.includes(parsed.category) || typeof parsed.summary !== "string" || typeof parsed.explanation !== "string" || typeof parsed.recommendation !== "string" || typeof parsed.pattern !== "string" || !Array.isArray(parsed.groundedIn)) return fallback(mistake);
     return { ...parsed, source: "ollama" } as Explanation;
   } catch {
     return fallback(mistake);

@@ -64,7 +64,7 @@ export class SupabaseStore {
   }
 
   async unanalyzedGamesFor(username: string, limit = 1): Promise<GameRecord[]> {
-    const { data: rows, error } = await this.client.from("games").select("*").or(`white.eq.${username},black.eq.${username}`).order("game_date", { ascending: false }).limit(500);
+    const { data: rows, error } = await this.client.from("games").select("*").or(`white.eq.${username},black.eq.${username}`).order("game_date", { ascending: false }).limit(limit);
     if (error) throw new Error(`Supabase game lookup failed: ${error.message}`);
     const { data: analyses, error: analysisError } = await this.client.from("analyses").select("game_id").eq("status", "completed");
     if (analysisError) throw new Error(`Supabase analysis lookup failed: ${analysisError.message}`);
