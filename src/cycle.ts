@@ -1,6 +1,7 @@
 import { config, requireUsername } from "./config.js";
 import { discoverGames } from "./chesscom.js";
 import { analyzeGame } from "./analyze.js";
+import { StockfishEngine } from "./stockfish.js";
 import { explainMistake } from "./explain.js";
 import { sendDiscordGameReport, sendDiscordInteractiveGameReport } from "./discord.js";
 import { SupabaseStore } from "./supabase-store.js";
@@ -30,11 +31,13 @@ export async function runCoachBackfill(): Promise<void> {
   const discovered = await discoverGames(username, config.userAgent, 0);
   await store.upsertGames(username, discovered);
   const games = await store.unanalyzedGamesFor(username, 100000);
+  const engine = new StockfishEngine();
   const summary = {
     username,
     discovered: discovered.length,
     gamesQueued: games.length,
     gamesAnalyzed: 0,
+    gamesFailed: 0,
     gamesWithMistakes: 0,
     mistakes: 0,
     evaluationLoss: 0,
@@ -43,19 +46,29 @@ export async function runCoachBackfill(): Promise<void> {
     pattern: "Move-safety check: name your opponent's strongest reply before committing to a move."
   };
 
-  for (const game of games) {
-    const mistakes = await analyzeGame(game, 8, username);
-    const explanations = await Promise.all(mistakes.map((mistake) => explainMistake(game, mistake)));
-    await store.saveAnalysis(game, mistakes, explanations, 8);
-    summary.gamesAnalyzed += 1;
-    if (mistakes.length) summary.gamesWithMistakes += 1;
-    summary.mistakes += mistakes.length;
-    summary.evaluationLoss += mistakes.reduce((total, mistake) => total + mistake.evaluationLoss, 0);
-    for (const [index, mistake] of mistakes.entries()) {
-      summary.severity[mistake.severity] += 1;
-      const category = explanations[index]?.category ?? "Other";
-      summary.categories[category] = (summary.categories[category] ?? 0) + 1;
+  await engine.start();
+  try {
+    for (const game of games) {
+      try {
+        const mistakes = await analyzeGame(game, 8, username, engine);
+        const explanations = await Promise.all(mistakes.map((mistake) => explainMistake(game, mistake)));
+        await store.saveAnalysis(game, mistakes, explanations, 8);
+        summary.gamesAnalyzed += 1;
+        if (mistakes.length) summary.gamesWithMistakes += 1;
+        summary.mistakes += mistakes.length;
+        summary.evaluationLoss += mistakes.reduce((total, mistake) => total + mistake.evaluationLoss, 0);
+        for (const [index, mistake] of mistakes.entries()) {
+          summary.severity[mistake.severity] += 1;
+          const category = explanations[index]?.category ?? "Other";
+          summary.categories[category] = (summary.categories[category] ?? 0) + 1;
+        }
+      } catch (error) {
+        summary.gamesFailed += 1;
+        console.error(`Backfill failed for ${game.url}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
+  } finally {
+    await engine.stop();
   }
 
   console.log(JSON.stringify({

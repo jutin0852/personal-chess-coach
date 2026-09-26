@@ -31,14 +31,14 @@ function severity(loss: number): Mistake["severity"] {
   return "inaccuracy";
 }
 
-export async function analyzeGame(game: GameRecord, depth = 8, player?: string): Promise<Mistake[]> {
+export async function analyzeGame(game: GameRecord, depth = 8, player?: string, sharedEngine?: StockfishEngine): Promise<Mistake[]> {
   const parsed = new Chess();
   parsed.loadPgn(game.pgn);
   const moves = parsed.history({ verbose: true });
   const replay = new Chess();
-  const engine = new StockfishEngine();
+  const engine = sharedEngine ?? new StockfishEngine();
   const mistakes: Mistake[] = [];
-  await engine.start();
+  if (!sharedEngine) await engine.start();
   try {
     for (let index = 0; index < moves.length; index++) {
       const move = moves[index];
@@ -65,7 +65,7 @@ export async function analyzeGame(game: GameRecord, depth = 8, player?: string):
       }
     }
   } finally {
-    await engine.stop();
+    if (!sharedEngine) await engine.stop();
   }
   return mistakes;
 }
