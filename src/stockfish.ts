@@ -9,7 +9,7 @@ type Engine = {
   _isReady?: () => boolean;
 };
 
-type EngineFactory = (options: {
+type EngineInitializer = () => (options: {
   locateFile(path: string): string;
   wasmBinary: Buffer;
 }) => Promise<Engine>;
@@ -19,11 +19,11 @@ async function initEngine(): Promise<Engine> {
   // wrapper can return the wrong module shape on hosted Node runners.
   // @ts-expect-error package has no bundled TypeScript declaration
   const module = await import("stockfish/bin/stockfish-19-lite-single.js");
-  const factory = (module.default ?? module.Stockfish) as EngineFactory;
+  const factory = (module.default ?? module.Stockfish) as EngineInitializer;
   const require = createRequire(import.meta.url);
   const packageDir = path.dirname(require.resolve("stockfish/package.json"));
   const wasmPath = path.join(packageDir, "bin", "stockfish-19-lite-single.wasm");
-  const engine = await factory({ locateFile: () => wasmPath, wasmBinary: fs.readFileSync(wasmPath) });
+  const engine = await factory()({ locateFile: () => wasmPath, wasmBinary: fs.readFileSync(wasmPath) });
   if (engine._isReady) {
     while (!engine._isReady()) await new Promise((resolve) => setTimeout(resolve, 10));
     delete engine._isReady;
